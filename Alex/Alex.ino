@@ -233,7 +233,7 @@ void writeSerial(const char *buffer, int len) // Write to the serial port
 
 
 /*
-  Alex Communication Routines from R-Pi
+  Alex Communication Routines with R-Pi
 */
 void handleCommand(TPacket *command)
 {
@@ -316,10 +316,6 @@ void waitForHello()
   } // !exit
 }
 
-
-/*
-  Alex Communication Routines to R-Pi
-*/
 TResult readPacket(TPacket *packet)
 {
   char buffer[PACKET_SIZE];
