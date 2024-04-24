@@ -7,115 +7,50 @@
 #include <Adafruit_NeoPixel.h>
 
 volatile TDirection dir;
-volatile unsigned long color;
-
-/*
-   Alex's configuration constants
-*/
 #define PI 3.141592654
 #define ALEX_LENGTH 25.7
 #define ALEX_BREADTH 15
-
+#define WHEEL_CIRC 6.6 * PI 
+#define COUNTS_PER_REV 3.3 // Ticks per revolution from the encoder
 float alexDiagonal = sqrt((ALEX_LENGTH * ALEX_LENGTH) + (ALEX_BREADTH * ALEX_BREADTH));
 float alexCirc = alexDiagonal * PI;
 
-// Number of ticks per revolution from the
-// wheel encoder.
-
-#define COUNTS_PER_REV    3.3
-
-// Wheel circumference in cm.
-// We will use this to calculate forward/backward distance traveled
-// by taking revs * WHEEL_CIRC
-
-#define WHEEL_CIRC          6.6 * PI
 
 /*
-      Alex's State Variables
+  Alex’s Movement Configuration and Function Definition
 */
-
-// Store the ticks from Alex's left and
-// right encoders.
+// Encoder Ticks
 volatile unsigned long leftForwardTicks;
-volatile unsigned long rightForwardTicks;
 volatile unsigned long leftReverseTicks;
-volatile unsigned long rightReverseTicks;
-
-// Left and right encoder ticks for turning
 volatile unsigned long leftForwardTicksTurns;
-volatile unsigned long rightForwardTicksTurns;
 volatile unsigned long leftReverseTicksTurns;
-volatile unsigned long rightReverseTicksTurns;
-
-// Store the revolutions on Alex's left
-// and right wheels
-volatile unsigned long leftRevs;
-volatile unsigned long rightRevs;
 
 // Forward and backward distance traveled
 volatile unsigned long forwardDist;
 volatile unsigned long reverseDist;
 
+// To track changes
 unsigned long deltaDist;
 unsigned long newDist;
-
 unsigned long deltaTicks;
 unsigned long targetTicks;
 
-/*
-
-   Alex Communication Routines.
-
-*/
-#define RING 31
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(16, RING, NEO_GRB + NEO_KHZ800);
-void setRing() {
-  strip.begin();
-  strip.show(); // Initialize all pixels to 'off'
-  strip.setBrightness(8);
-}
-
-#define S0 0
-#define S1 1
-#define S2 2
-#define S3 3
-#define colorOut 20
-
-volatile unsigned long colorId[3];
-
-void setColor() {
-  DDRA = 0b00001111;
-  DDRD = 0;
-  PORTA = 0b00000001;
-}
-
-void setUltrasonic() {
-  DDRA |= 0b00010000;
-}
-
-TResult readPacket(TPacket *packet)
+// Initialize Alex's internal states
+void initializeState() 
 {
-  // Reads in data from the serial port and
-  // deserializes it.Returns deserialized
-  // data in "packet".
-
-  char buffer[PACKET_SIZE];
-  int len;
-
-  len = readSerial(buffer);
-
-  if (len == 0)
-    return PACKET_INCOMPLETE;
-  else
-    return deserialize(buffer, len, packet);
-
+  leftForwardTicks = 0;
+  leftReverseTicks = 0;
+  leftForwardTicksTurns = 0;
+  leftReverseTicksTurns = 0;
+  forwardDist = 0;
+  reverseDist = 0;
 }
 
+// Ticks Computation for turning
 unsigned long computeDeltaTicks(float ang) {
   unsigned long ticks = (unsigned long) ((ang * alexCirc * COUNTS_PER_REV) / (360.0 * WHEEL_CIRC));
   return ticks;
 }
-
 
 void left(float ang, float speed) {
   if (ang == 0) {
@@ -123,9 +58,7 @@ void left(float ang, float speed) {
   } else {
     deltaTicks = computeDeltaTicks(ang);
   }
-
   targetTicks = leftReverseTicksTurns + deltaTicks;
-
   ccw(ang, speed);
 }
 
@@ -135,147 +68,30 @@ void right(float ang, float speed) {
   } else {
     deltaTicks = computeDeltaTicks(ang);
   }
-
   targetTicks = leftForwardTicksTurns + deltaTicks;
   cw(ang, speed);
 }
 
-void sendStatus()
-{
-  // Implement code to send back a packet containing key
-  // information like leftTicks, rightTicks, leftRevs, rightRevs
-  // forwardDist and reverseDist
-  // Use the params array to store this information, and set the
-  // packetType and command files accordingly, then use sendResponse
-  // to send out the packet. See sendMessage on how to use sendResponse.
-  //
-  TPacket statusPacket;
-  statusPacket.packetType = PACKET_TYPE_RESPONSE;
-  statusPacket.command = RESP_STATUS;
-  statusPacket.params[0] = leftForwardTicks;
-  statusPacket.params[1] = rightForwardTicks;
-  statusPacket.params[2] = leftReverseTicks;
-  statusPacket.params[3] = rightReverseTicks;
-  statusPacket.params[4] = leftForwardTicksTurns;
-  statusPacket.params[5] = rightForwardTicksTurns;
-  statusPacket.params[6] = leftReverseTicksTurns;
-  statusPacket.params[7] = rightReverseTicksTurns;
-  statusPacket.params[8] = forwardDist;
-  statusPacket.params[9] = reverseDist;
-  statusPacket.params[10] = colorId[0];
-  statusPacket.params[11] = colorId[1];
-  statusPacket.params[12] = colorId[2];
-  statusPacket.params[13] = color;
-  statusPacket.params[14] = checkUltrasonic();
-  sendResponse(&statusPacket);
-}
-
-void sendMessage(const char *message)
-{
-  // Sends text messages back to the Pi. Useful
-  // for debugging.
-
-  TPacket messagePacket;
-  messagePacket.packetType = PACKET_TYPE_MESSAGE;
-  strncpy(messagePacket.data, message, MAX_STR_LEN);
-  sendResponse(&messagePacket);
-}
-
-void dbprintf(char* format, ...) {
-  va_list args;
-  char buffer[128];
-  va_start(args, format);
-  vsprintf(buffer, format, args);
-  sendMessage(buffer);
-}
-
-void sendBadPacket()
-{
-  // Tell the Pi that it sent us a packet with a bad
-  // magic number.
-
-  TPacket badPacket;
-  badPacket.packetType = PACKET_TYPE_ERROR;
-  badPacket.command = RESP_BAD_PACKET;
-  sendResponse(&badPacket);
-
-}
-
-void sendBadChecksum()
-{
-  // Tell the Pi that it sent us a packet with a bad
-  // checksum.
-
-  TPacket badChecksum;
-  badChecksum.packetType = PACKET_TYPE_ERROR;
-  badChecksum.command = RESP_BAD_CHECKSUM;
-  sendResponse(&badChecksum);
-}
-
-void sendBadCommand()
-{
-  // Tell the Pi that we don't understand its
-  // command sent to us.
-
-  TPacket badCommand;
-  badCommand.packetType = PACKET_TYPE_ERROR;
-  badCommand.command = RESP_BAD_COMMAND;
-  sendResponse(&badCommand);
-}
-
-void sendBadResponse()
-{
-  TPacket badResponse;
-  badResponse.packetType = PACKET_TYPE_ERROR;
-  badResponse.command = RESP_BAD_RESPONSE;
-  sendResponse(&badResponse);
-}
-
-void sendOK()
-{
-  TPacket okPacket;
-  okPacket.packetType = PACKET_TYPE_RESPONSE;
-  okPacket.command = RESP_OK;
-  sendResponse(&okPacket);
-}
-
-void sendResponse(TPacket *packet)
-{
-  // Takes a packet, serializes it then sends it out
-  // over the serial port.
-  char buffer[PACKET_SIZE];
-  int len;
-
-  len = serialize(buffer, packet, sizeof(TPacket));
-  writeSerial(buffer, len);
-}
-
-
 /*
-   Setup and start codes for external interrupts and
-   pullup resistors.
-
+  Encoder Configuration and ISR Definition
 */
-// Enable pull up resistors on pins 18 and 19
-void enablePullups()
+void enablePullups() // Enable pull up resistors on pin 18 (Left Encoder)
 {
-  // Use bare-metal to enable the pull-up resistors on pins
-  // 19 and 18. These are pins PD2 and PD3 respectively.
-  // We set bits 2 and 3 in DDRD to 0 to make them inputs.
   DDRD = 0;
-  PORTD = 0b00001100;
+  PORTD = 0b00001000; // Set Pin 18 to input
 }
 
-ISR(INT2_vect) { // Pin 19
-  rightISR();
+void setupEINT() // For Pin 18 
+{
+  EICRA = 0b10000000; // Set to falling edge
+  EIMSK = 0b00001000;
 }
 
 ISR(INT3_vect) { // Pin 18
   leftISR();
 }
 
-// Functions to be called by INT2 and INT3 ISRs.
-void leftISR()
+void leftISR() // Functions to be called by INT3 ISRs.
 {
   if (dir == FORWARD) {
     leftForwardTicks++;
@@ -293,213 +109,18 @@ void leftISR()
   }
 }
 
-void rightISR()
-{
-  if (dir == FORWARD) {
-    rightForwardTicks++;
-  }
-  if (dir == BACKWARD) {
-    rightReverseTicks++;
-  }
-//  if (dir == LEFT) {
-//    rightForwardTicksTurns++;
-//  }
-//  if (dir == RIGHT) {
-//    rightReverseTicksTurns++;
-//  }
-}
-
-// Set up the external interrupt pins INT2 and INT3
-// for falling edge triggered. Use bare-metal.
-void setupEINT()
-{
-  // Use bare-metal to configure pins 18 and 19 to be
-  EICRA = 0b10100000;
-  EIMSK = 0b00001100;
-  // falling edge triggered. Remember to enable
-  // the INT2 and INT3 interrupts.
-  // Hint: Check pages 110 and 111 in the ATmega2560 Datasheet.
-
-}
-
-// Implement the external interrupt ISRs below.
-// INT3 ISR should call leftISR while INT2 ISR
-// should call rightISR.
-
-
-// Implement INT2 and INT3 ISRs above.
 
 /*
-   Setup and start codes for serial communications
-
+  Color Sensor Configuration and Function Definition
 */
-// Set up the serial connection. For now we are using
-// Arduino Wiring, you will replace this later
-// with bare-metal code.
-void setupSerial()
-{
-  // To replace later with bare-metal
-  Serial.begin(9600);
-  // UBRR3L = 103;
-  
-  // Change Serial to Serial2/Serial3/Serial4 in later labs when using the other UARTs
-}
+#define colorOut 20
+volatile unsigned long color;
+volatile unsigned long colorId[3];
 
-// Start the serial connection. For now we are using
-// Arduino wiring and this function is empty. We will
-// replace this later with bare-metal code.
-
-void startSerial()
-{
-  // Empty for now. To be replaced with bare-metal code
-  // later on.
-
-}
-
-// Read the serial port. Returns the read character in
-// ch if available. Also returns TRUE if ch is valid.
-// This will be replaced later with bare-metal code.
-
-int readSerial(char *buffer)
-{
-
-  int count = 0;
-
-  // Change Serial to Serial2/Serial3/Serial4 in later labs when using other UARTs
-
-  while (Serial.available())
-    buffer[count++] = Serial.read();
-
-  return count;
-}
-
-// Write to the serial port. Replaced later with
-// bare-metal code
-
-void writeSerial(const char *buffer, int len)
-{
-  Serial.write(buffer, len);
-  // Change Serial to Serial2/Serial3/Serial4 in later labs when using other UARTs
-}
-
-/*
-   Alex's setup and run codes
-
-*/
-
-// Clears all our counters
-void clearCounters()
-{
-  leftForwardTicks = 0;
-  rightForwardTicks = 0;
-  leftReverseTicks = 0;
-  rightReverseTicks = 0;
-  leftForwardTicksTurns = 0;
-  rightForwardTicksTurns = 0;
-  leftReverseTicksTurns = 0;
-  rightReverseTicksTurns = 0;
-  leftRevs = 0;
-  rightRevs = 0;
-  forwardDist = 0;
-  reverseDist = 0;
-}
-
-// Clears one particular counter
-void clearOneCounter(int which)
-{
-  clearCounters();
-}
-// Intialize Alex's internal states
-
-void initializeState()
-{
-  clearCounters();
-}
-
-void handleCommand(TPacket *command)
-{
-  switch (command->command)
-  {
-    // For movement commands, param[0] = distance, param[1] = speed.
-    case COMMAND_FORWARD:
-      //sendOK();
-      forward((double) command->params[0], (float) command->params[1]);
-      break;
-    case COMMAND_TURN_LEFT:
-      //sendOK();
-      left((double) command->params[0], (float) command->params[1]);
-      break;
-    case COMMAND_TURN_RIGHT:
-      //sendOK();
-      right((double) command->params[0], (float) command->params[1]);
-      break;
-    case COMMAND_REVERSE:
-      //sendOK();
-      backward((double) command->params[0], (float) command->params[1]);
-      break;
-    case COMMAND_STOP:
-      //sendOK();
-      stop();
-      break;
-    case COMMAND_GET_STATS:
-      color = checkColor();
-      sendStatus();
-      break;
-    case COMMAND_CLEAR_STATS:
-      clearOneCounter(command->params[0]);
-      sendOK();
-      break;
-    /*
-       Implement code for other commands here.
-
-    */
-
-    default:
-      sendBadCommand();
-  }
-}
-
-void waitForHello()
-{
-  int exit = 0;
-
-  while (!exit)
-  {
-    TPacket hello;
-    TResult result;
-
-    do
-    {
-      result = readPacket(&hello);
-    } while (result == PACKET_INCOMPLETE);
-
-    if (result == PACKET_OK)
-    {
-      if (hello.packetType == PACKET_TYPE_HELLO)
-      {
-
-
-        sendOK();
-        exit = 1;
-      }
-      else
-        sendBadResponse();
-    }
-    else if (result == PACKET_BAD)
-    {
-      sendBadPacket();
-    }
-    else if (result == PACKET_CHECKSUM_BAD)
-      sendBadChecksum();
-  } // !exit
-}
-
-void colorWipe(uint32_t c, uint8_t wait) {
-  for(uint16_t i=0; i<strip.numPixels(); i++) {
-      strip.setPixelColor(i, c);
-      strip.show();
-      delay(wait);
-  }
+void setColor() {
+  DDRA = 0b00001111;
+  DDRD = 0;
+  PORTA = 0b00000001;
 }
 
 unsigned long checkColor() {
@@ -531,6 +152,14 @@ unsigned long checkColor() {
   return 2; // White
 }
 
+
+/*
+  Ultrasonic Configuration and Function Definition
+*/
+void setUltrasonic() {
+  DDRA |= 0b00010000;
+}
+
 unsigned long checkUltrasonic() {
   PORTA &= ~(1<<4);
   delayMicroseconds(2);
@@ -541,19 +170,28 @@ unsigned long checkUltrasonic() {
   return duration * 0.034 / 2;
 }
 
-uint32_t Wheel(byte WheelPos) {
-  if(WheelPos < 85) {
-   return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-  } else if(WheelPos < 170) {
-   WheelPos -= 85;
-   return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
-  } else {
-   WheelPos -= 170;
-   return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+
+/*
+  Ring Light Configuration and Function Definition
+*/
+#define RING 31 
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(16, RING, NEO_GRB + NEO_KHZ800);
+
+void setRing() { // Setup
+  strip.begin();
+  strip.show(); // Initialize all pixels to 'off'
+  strip.setBrightness(8);
+}
+
+void colorWipe(uint32_t c, uint8_t wait) { // To display a fixed color
+  for(uint16_t i=0; i<strip.numPixels(); i++) {
+      strip.setPixelColor(i, c);
+      strip.show();
+      delay(wait);
   }
 }
 
-void rainbowCycle() {
+void rainbowCycle() { // To display all colors on ring light
   uint16_t i, j;
 
   for(j=0; j<256*5; j++) { // 5 cycles of all colors on wheel
@@ -564,22 +202,65 @@ void rainbowCycle() {
   }
 }
 
-void setup() {
-  // put your setup code here, to run once:
-  alexDiagonal = sqrt((ALEX_LENGTH * ALEX_LENGTH) + (ALEX_BREADTH *
-                      ALEX_BREADTH));
-  alexCirc = PI * alexDiagonal;
-  cli();
-  setupEINT();
-  setColor();
-  setUltrasonic();
-  setupSerial();
-  startSerial();
-  setRing();
-  enablePullups();
-  initializeState();
-  rainbowCycle();
-  sei();
+
+/*
+  Setup and start codes for serial communications
+*/
+void setupSerial() // Set up the serial connection
+{
+  Serial.begin(9600); // To replace later with bare-metal
+  // UBRR3L = 103;
+}
+
+void startSerial() // Start the serial connection
+{
+  // Using Arduino Wiring
+  // To be replaced with bare-metal code
+}
+
+int readSerial(char *buffer) // Read the serial port
+{
+  int count = 0;
+  while (Serial.available()) // This will be replaced later with bare-metal code.
+    buffer[count++] = Serial.read();
+  return count;
+}
+
+void writeSerial(const char *buffer, int len) // Write to the serial port
+{
+  Serial.write(buffer, len); // Replaced later with bare-metal code
+}
+
+
+/*
+  Alex Communication Routines from R-Pi
+*/
+void handleCommand(TPacket *command)
+{
+  switch (command->command)
+  {
+    // For movement commands, param[0] = distance, param[1] = speed.
+    case COMMAND_FORWARD:
+      forward((double) command->params[0], (float) command->params[1]);
+      break;
+    case COMMAND_TURN_LEFT:
+      left((double) command->params[0], (float) command->params[1]);
+      break;
+    case COMMAND_TURN_RIGHT:
+      right((double) command->params[0], (float) command->params[1]);
+      break;
+    case COMMAND_REVERSE:
+      backward((double) command->params[0], (float) command->params[1]);
+      break;
+    case COMMAND_STOP:
+      stop();
+      break;
+    case COMMAND_GET_STATS:
+      color = checkColor();
+      sendStatus();
+    default:
+      sendBadCommand();
+  }
 }
 
 void handlePacket(TPacket *packet)
@@ -604,21 +285,158 @@ void handlePacket(TPacket *packet)
   }
 }
 
-volatile uint8_t i = 0;
+void waitForHello()
+{
+  int exit = 0;
+  while (!exit)
+  {
+    TPacket hello;
+    TResult result;
+    do
+    {
+      result = readPacket(&hello);
+    } while (result == PACKET_INCOMPLETE);
+
+    if (result == PACKET_OK)
+    {
+      if (hello.packetType == PACKET_TYPE_HELLO)
+      {
+        sendOK();
+        exit = 1;
+      }
+      else
+        sendBadResponse();
+    }
+    else if (result == PACKET_BAD)
+    {
+      sendBadPacket();
+    }
+    else if (result == PACKET_CHECKSUM_BAD)
+      sendBadChecksum();
+  } // !exit
+}
+
+
+/*
+  Alex Communication Routines to R-Pi
+*/
+TResult readPacket(TPacket *packet)
+{
+  char buffer[PACKET_SIZE];
+  int len = readSerial(buffer); // Reads in data from the serial port
+  if (len == 0)
+    return PACKET_INCOMPLETE;
+  else
+    return deserialize(buffer, len, packet); // deserializes to packet
+}
+
+void sendStatus()
+{
+  TPacket statusPacket;
+  statusPacket.packetType = PACKET_TYPE_RESPONSE;
+  statusPacket.command = RESP_STATUS;
+  statusPacket.params[0] = leftForwardTicks;
+  statusPacket.params[1] = leftReverseTicks;
+  statusPacket.params[2] = leftForwardTicksTurns;
+  statusPacket.params[3] = leftReverseTicksTurns;
+  statusPacket.params[4] = forwardDist;
+  statusPacket.params[5] = reverseDist;
+  statusPacket.params[6] = colorId[0];
+  statusPacket.params[7] = colorId[1];
+  statusPacket.params[8] = colorId[2];
+  statusPacket.params[9] = color;
+  statusPacket.params[10] = checkUltrasonic();
+  sendResponse(&statusPacket);
+}
+
+// For debugging (To PC), not used in mission
+void sendMessage(const char *message)
+{
+  TPacket messagePacket;
+  messagePacket.packetType = PACKET_TYPE_MESSAGE;
+  strncpy(messagePacket.data, message, MAX_STR_LEN);
+  sendResponse(&messagePacket);
+}
+
+// For debugging (In Arduino), not used in mission
+void dbprintf(char* format, ...) {
+  va_list args;
+  char buffer[128];
+  va_start(args, format);
+  vsprintf(buffer, format, args);
+  sendMessage(buffer);
+}
+
+void sendBadPacket() // Wrong magic number
+{
+  TPacket badPacket;
+  badPacket.packetType = PACKET_TYPE_ERROR;
+  badPacket.command = RESP_BAD_PACKET;
+  sendResponse(&badPacket);
+
+}
+
+void sendBadChecksum() // Wrong Checksum
+{
+  TPacket badChecksum;
+  badChecksum.packetType = PACKET_TYPE_ERROR;
+  badChecksum.command = RESP_BAD_CHECKSUM;
+  sendResponse(&badChecksum);
+}
+
+void sendBadCommand() // Invalid Command
+{
+  TPacket badCommand;
+  badCommand.packetType = PACKET_TYPE_ERROR;
+  badCommand.command = RESP_BAD_COMMAND;
+  sendResponse(&badCommand);
+}
+
+void sendBadResponse()
+{
+  TPacket badResponse;
+  badResponse.packetType = PACKET_TYPE_ERROR;
+  badResponse.command = RESP_BAD_RESPONSE;
+  sendResponse(&badResponse);
+}
+
+void sendOK()
+{
+  TPacket okPacket;
+  okPacket.packetType = PACKET_TYPE_RESPONSE;
+  okPacket.command = RESP_OK;
+  sendResponse(&okPacket);
+}
+
+void sendResponse(TPacket *packet)
+{
+  char buffer[PACKET_SIZE];
+  int len = serialize(buffer, packet, sizeof(TPacket)); // Serialise Packet
+  writeSerial(buffer, len); // Send to R-Pi
+}
+
+/*
+  Main Function
+*/
+void setup() {
+  cli();
+  setupEINT();
+  setColor();
+  setUltrasonic();
+  setupSerial();
+  startSerial();
+  setRing();
+  enablePullups();
+  initializeState();
+  rainbowCycle();
+  sei();
+}
 
 void loop() {
-  // Uncomment the code below for Step 2 of Activity 3 in Week 8 Studio 2
 
-  //forward(0, 100);
-
-  // Uncomment the code below for Week 9 Studio 2
-
-  // put your main code here, to run repeatedly:
   TPacket recvPacket; // This holds commands from the Pi
-
   TResult result = readPacket(&recvPacket);
 
-  
   if (result == PACKET_OK) {
     handlePacket(&recvPacket);
   }
@@ -636,11 +454,7 @@ void loop() {
     if (dir == FORWARD)
     {
       unsigned long distance = checkUltrasonic();
-//      char usread[128];
-//      ltoa(distance,usread,10);
-//      dbprintf(usread);
-        delay(100);
-      
+      delay(100);
       if ((distance <= 10 && distance != 0) || forwardDist > newDist)
       {
         deltaDist = 0;
@@ -694,8 +508,6 @@ void loop() {
           sendStatus();
         }
       }
-
     }
   }
-  
 }
