@@ -1,16 +1,21 @@
+#include "make_tls_client.h" // Routines to create a TLS client
+#include "netconstants.h" // Network packet types
+#include "constants.h" // Packet types, error codes, etc.
 
-// Routines to create a TLS client
-#include "make_tls_client.h"
+static volatile int networkActive=0; // To check if network is running.
 
-// Network packet types
-#include "netconstants.h"
+// Parameters and Filenames for TLS Handshake
+#define SERVER_NAME "192.168.139.41" // R-Pi IP address
+#define PORT_NUM 5001 // Port number
+#define CA_CERT_FNAME "signing.pem" // CA certificate name
+#define CLIENT_CERT_FNAME "laptop.crt" // PC's certificate
+#define CLIENT_KEY_FNAME "laptop.key" // PC's private key
+#define SERVER_NAME_ON_CERT "signer.com" // R-Pi's name
 
-// Packet types, error codes, etc.
-#include "constants.h"
 
-// Tells us that the network is running.
-static volatile int networkActive=0;
-
+/*
+	Network Routines with R-Pi 
+*/
 void handleError(const char *buffer)
 {
 	switch(buffer[1])
@@ -47,40 +52,28 @@ void handleStatus(const char *buffer)
 
 	printf("\n ------- ALEX STATUS REPORT ------- \n\n");
 	printf("Left Forward Ticks:\t\t%d\n", data[0]);
-	printf("Right Forward Ticks:\t\t%d\n", data[1]);
-	printf("Left Reverse Ticks:\t\t%d\n", data[2]);
-	printf("Right Reverse Ticks:\t\t%d\n", data[3]);
-	printf("Left Forward Ticks Turns:\t%d\n", data[4]);
-	printf("Right Forward Ticks Turns:\t%d\n", data[5]);
-	printf("Left Reverse Ticks Turns:\t%d\n", data[6]);
-	printf("Right Reverse Ticks Turns:\t%d\n", data[7]);
-	printf("Forward Distance:\t\t%d\n", data[8]);
-	printf("Reverse Distance:\t\t%d\n", data[9]);
-	printf("Red:\t\t%d\n", data[10]);
-	printf("Green:\t\t%d\n", data[11]);
-	printf("Blue:\t\t%d\n", data[12]);
-	printf("Colour:\t\t%d\n", data[13]);
-	printf("Distance:\t\t%d\n", data[14]);
+	printf("Left Reverse Ticks:\t\t%d\n", data[1]);
+	printf("Left Forward Ticks Turns:\t%d\n", data[2]);
+	printf("Left Reverse Ticks Turns:\t%d\n", data[3]);
+	printf("Forward Distance:\t\t%d\n", data[4]);
+	printf("Reverse Distance:\t\t%d\n", data[5]);
+	printf("Red:\t\t%d\n", data[6]);
+	printf("Green:\t\t%d\n", data[7]);
+	printf("Blue:\t\t%d\n", data[8]);
+	printf("Colour:\t\t%d\n", data[9]);
+	printf("Distance:\t\t%d\n", data[10]);
 	printf("\n---------------------------------------\n\n");
 }
 
+// For debugging, not used in mission
 void handleMessage(const char *buffer)
 {
 	printf("MESSAGE FROM ALEX: %s\n", &buffer[1]);
 }
 
-void handleCommand(const char *buffer)
-{
-	// We don't do anything because we issue commands
-	// but we don't get them. Put this here
-	// for future expansion
-}
-
 void handleNetwork(const char *buffer, int len)
 {
-	// The first byte is the packet type
-	int type = buffer[0];
-
+	int type = buffer[0]; // The first byte is the packet type
 	switch(type)
 	{
 		case NET_ERROR_PACKET:
@@ -105,15 +98,13 @@ void sendData(void *conn, const char *buffer, int len)
 {
 	int c;
 	printf("\nSENDING %d BYTES DATA\n\n", len);
+
 	if(networkActive)
 	{
-		/* TODO: Insert SSL write here to write buffer to network */
-
-                int count = sslWrite(conn,buffer,len);
+        int count = sslWrite(conn,buffer,len);
 		if(count<0){
 		   perror("Error writing to server");
 		}
-		/* END TODO */	
 		networkActive = (c > 0);
 	}
 }
@@ -125,38 +116,35 @@ void *readerThread(void *conn)
 
 	while(networkActive)
 	{
-		/* TODO: Insert SSL read here into buffer */
-
-                len = sslRead(conn,buffer,sizeof(buffer));
-
+        len = sslRead(conn,buffer,sizeof(buffer));
 		if(len<0){
 		    perror("Error reading from server");
 		}
-
         printf("read %d bytes from server.\n", len);
-		
-		/* END TODO */
 
 		networkActive = (len > 0);
-
 		if(networkActive)
 			handleNetwork(buffer, len);
 	}
-
 	printf("Exiting network listener thread\n");
-    
-    /* TODO: Stop the client loop and call EXIT_THREAD */
+
     stopClient();
     EXIT_THREAD(conn);
-    /* END TODO */
-
     return NULL;
 }
 
+void connectToServer(const char *serverName, int portNum)
+{
+     createClient(SERVER_NAME,PORT_NUM,1,CA_CERT_FNAME,SERVER_NAME_ON_CERT,1,CLIENT_CERT_FNAME,CLIENT_KEY_FNAME, readerThread,writerThread);
+}
+
+
+/*
+	Scanning Operators' Command
+*/
 void flushInput()
 {
 	char c;
-
 	while((c = getchar()) != '\n' && c != EOF);
 }
 
@@ -203,8 +191,6 @@ void *writerThread(void *conn)
 						break;
 			case 's':
 			case 'S':
-			case 'c':
-			case 'C':
 			case 'g':
 			case 'G':
 					params[0]=0;
@@ -221,34 +207,16 @@ void *writerThread(void *conn)
 				printf("BAD COMMAND\n");
 		}
 	}
-
 	printf("Exiting keyboard thread\n");
-
-    /* TODO: Stop the client loop and call EXIT_THREAD */
     stopClient();
     EXIT_THREAD(conn);
-    /* END TODO */
-
     return NULL;
 }
 
-/* TODO: #define filenames for the client private key, certificatea,
-   CA filename, etc. that you need to create a client */
-#define SERVER_NAME "192.168.139.41"
-#define PORT_NUM 5001
-#define CA_CERT_FNAME "signing.pem"
-#define CLIENT_CERT_FNAME "laptop.crt"
-#define CLIENT_KEY_FNAME "laptop.key"
-#define SERVER_NAME_ON_CERT "signer.com"
 
-/* END TODO */
-void connectToServer(const char *serverName, int portNum)
-{
-    /* TODO: Create a new client */
-     createClient(SERVER_NAME,PORT_NUM,1,CA_CERT_FNAME,SERVER_NAME_ON_CERT,1,CLIENT_CERT_FNAME,CLIENT_KEY_FNAME, readerThread,writerThread);
-    /* END TODO */
-}
-
+/*
+	Main Function
+*/
 int main(int ac, char **av)
 {
 	if(ac != 3)
@@ -260,11 +228,7 @@ int main(int ac, char **av)
     networkActive = 1;
     connectToServer(av[1], atoi(av[2]));
 
-    /* TODO: Add in while loop to prevent main from exiting while the
-    client loop is running */
+    while(client_is_running()); // Prevent main from exiting
 
-    while(client_is_running());
-
-    /* END TODO */
 	printf("\nMAIN exiting\n\n");
 }
