@@ -59,7 +59,7 @@ In emergencies, swift and effective search and rescue operations are crucial for
 - **[Documentation](B05-1A%20Final%20Report.pdf)**
 
 ## Authors
-- Ping Hui (@TPH777)
-- Frederick (@frederickemerson)
-- Wen Xi (@frederickemerson)
-- Keng Jer (@teokj)
+- [Ping Hui](https://github.com/TPH777)
+- [Frederick](https://github.com/frederickemerson)
+- [Wen Xi](https://github.com/wx-03)
+- [Keng Jer](https://github.com/teokj)
